@@ -1,0 +1,872 @@
+// ===== Application State =====
+const state = {
+    nodes: [],
+    connections: [],
+    groups: [],
+    selectedNode: null,
+    selectedConnection: null,
+    selectedGroup: null,
+    isDragging: false,
+    draggedNode: null,
+    draggedGroup: null,
+    isPanning: false,
+    panStart: { x: 0, y: 0 },
+    offset: { x: 0, y: 0 },
+    scale: 1,
+    isConnecting: false,
+    connectionStart: null,
+    mousePos: { x: 0, y: 0 },
+    nextNodeId: 1,
+    nextConnectionId: 1,
+    nextGroupId: 1,
+    nextElementId: 1,
+    diagramTitle: 'ネットワーク構成図',
+    gridSize: 20
+};
+
+// ===== Canvas Setup =====
+const canvas = document.getElementById('canvas');
+const ctx = canvas.getContext('2d');
+
+function resizeCanvas() {
+    canvas.width = canvas.offsetWidth;
+    canvas.height = canvas.offsetHeight;
+    render();
+}
+
+window.addEventListener('resize', resizeCanvas);
+resizeCanvas();
+
+// ===== Node Class =====
+class Node {
+    constructor(x, y) {
+        this.id = state.nextNodeId++;
+        this.x = x;
+        this.y = y;
+        this.width = 200;
+        this.height = 150;
+        this.label = `ノード ${this.id}`;
+        this.color = '#21262d';
+        this.memo = '';
+        this.elements = []; // 要素リスト
+        this.leftPorts = [
+            { name: 'L1', id: `${this.id}-L1` },
+            { name: 'L2', id: `${this.id}-L2` }
+        ];
+        this.rightPorts = [
+            { name: 'R1', id: `${this.id}-R1` },
+            { name: 'R2', id: `${this.id}-R2` }
+        ];
+    }
+
+    addElement(name) {
+        this.elements.push({
+            id: `${this.id}-e${state.nextElementId++}`,
+            name: name || `要素${this.elements.length + 1}`
+        });
+        this.updateHeight();
+    }
+
+    removeElement(index) {
+        this.elements.splice(index, 1);
+        this.updateHeight();
+    }
+
+    updateHeight() {
+        const headerHeight = 40;
+        const elementHeight = 28;
+        const padding = 10;
+        this.height = headerHeight + (this.elements.length * elementHeight) + padding;
+        // Minimum height for ports
+        this.height = Math.max(this.height, 80);
+    }
+
+    getPortPosition(portId) {
+        const port = [...this.leftPorts, ...this.rightPorts].find(p => p.id === portId);
+        if (!port) return null;
+
+        const isLeft = this.leftPorts.includes(port);
+        const ports = isLeft ? this.leftPorts : this.rightPorts;
+        const index = ports.indexOf(port);
+        const totalPorts = ports.length;
+        const spacing = this.height / (totalPorts + 1);
+
+        return {
+            x: isLeft ? this.x : this.x + this.width,
+            y: this.y + spacing * (index + 1),
+            isLeft: isLeft
+        };
+    }
+
+    getPortAtPosition(x, y) {
+        const allPorts = [
+            ...this.leftPorts.map(p => ({ ...p, isLeft: true })),
+            ...this.rightPorts.map(p => ({ ...p, isLeft: false }))
+        ];
+
+        for (const port of allPorts) {
+            const pos = this.getPortPosition(port.id);
+            const dx = x - pos.x;
+            const dy = y - pos.y;
+            if (Math.sqrt(dx * dx + dy * dy) < 8) {
+                return port;
+            }
+        }
+        return null;
+    }
+
+    containsPoint(x, y) {
+        return x >= this.x && x <= this.x + this.width &&
+            y >= this.y && y <= this.y + this.height;
+    }
+
+    draw(ctx, isSelected) {
+        // Node body
+        ctx.fillStyle = this.color;
+        ctx.strokeStyle = isSelected ? '#58a6ff' : '#30363d';
+        ctx.lineWidth = isSelected ? 3 : 2;
+
+        ctx.fillRect(this.x, this.y, this.width, this.height);
+        ctx.strokeRect(this.x, this.y, this.width, this.height);
+
+        // Header separator line
+        ctx.strokeStyle = '#30363d';
+        ctx.lineWidth = 1;
+        ctx.beginPath();
+        ctx.moveTo(this.x, this.y + 40);
+        ctx.lineTo(this.x + this.width, this.y + 40);
+        ctx.stroke();
+
+        // Node label
+        ctx.fillStyle = '#c9d1d9';
+        ctx.font = 'bold 14px "Segoe UI"';
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+        ctx.fillText(this.label, this.x + this.width / 2, this.y + 20);
+
+        // Draw elements
+        this.drawElements(ctx);
+
+        // Draw ports
+        this.drawPorts(ctx);
+    }
+
+    drawElements(ctx) {
+        const elementHeight = 28;
+        const startY = this.y + 45;
+
+        this.elements.forEach((element, index) => {
+            const elementY = startY + (index * elementHeight);
+
+            // Element background (slightly darker)
+            ctx.fillStyle = '#161b22';
+            ctx.fillRect(this.x + 5, elementY, this.width - 10, elementHeight - 2);
+
+            // Element text
+            ctx.fillStyle = '#8b949e';
+            ctx.font = '12px "Segoe UI"';
+            ctx.textAlign = 'left';
+            ctx.textBaseline = 'middle';
+            ctx.fillText(element.name, this.x + 10, elementY + (elementHeight - 2) / 2);
+        });
+    }
+
+    drawPorts(ctx) {
+        // Left ports
+        this.leftPorts.forEach((port, index) => {
+            const pos = this.getPortPosition(port.id);
+
+            // Port circle
+            ctx.fillStyle = '#58a6ff';
+            ctx.strokeStyle = '#1f6feb';
+            ctx.lineWidth = 2;
+            ctx.beginPath();
+            ctx.arc(pos.x, pos.y, 6, 0, Math.PI * 2);
+            ctx.fill();
+            ctx.stroke();
+
+            // Port name (outside, to the left)
+            ctx.fillStyle = '#8b949e';
+            ctx.font = '12px "Segoe UI"';
+            ctx.textAlign = 'right';
+            ctx.textBaseline = 'middle';
+            ctx.fillText(port.name, pos.x - 12, pos.y);
+        });
+
+        // Right ports
+        this.rightPorts.forEach((port, index) => {
+            const pos = this.getPortPosition(port.id);
+
+            // Port circle
+            ctx.fillStyle = '#58a6ff';
+            ctx.strokeStyle = '#1f6feb';
+            ctx.lineWidth = 2;
+            ctx.beginPath();
+            ctx.arc(pos.x, pos.y, 6, 0, Math.PI * 2);
+            ctx.fill();
+            ctx.stroke();
+
+            // Port name (outside, to the right)
+            ctx.fillStyle = '#8b949e';
+            ctx.font = '12px "Segoe UI"';
+            ctx.textAlign = 'left';
+            ctx.textBaseline = 'middle';
+            ctx.fillText(port.name, pos.x + 12, pos.y);
+        });
+    }
+}
+
+// ===== Connection Class =====
+class Connection {
+    constructor(fromNodeId, fromPortId, toNodeId, toPortId) {
+        this.id = state.nextConnectionId++;
+        this.fromNodeId = fromNodeId;
+        this.fromPortId = fromPortId;
+        this.toNodeId = toNodeId;
+        this.toPortId = toPortId;
+    }
+
+    draw(ctx, isSelected) {
+        const fromNode = state.nodes.find(n => n.id === this.fromNodeId);
+        const toNode = state.nodes.find(n => n.id === this.toNodeId);
+
+        if (!fromNode || !toNode) return;
+
+        const fromPos = fromNode.getPortPosition(this.fromPortId);
+        const toPos = toNode.getPortPosition(this.toPortId);
+
+        if (!fromPos || !toPos) return;
+
+        // Draw curved connection line
+        ctx.strokeStyle = isSelected ? '#f85149' : '#58a6ff';
+        ctx.lineWidth = isSelected ? 3 : 2;
+        ctx.beginPath();
+        ctx.moveTo(fromPos.x, fromPos.y);
+
+        // Bezier curve for smooth connection
+        const dx = Math.abs(toPos.x - fromPos.x);
+        const controlPointOffset = Math.min(dx * 0.5, 100);
+
+        ctx.bezierCurveTo(
+            fromPos.x + (fromPos.isLeft ? -controlPointOffset : controlPointOffset), fromPos.y,
+            toPos.x + (toPos.isLeft ? -controlPointOffset : controlPointOffset), toPos.y,
+            toPos.x, toPos.y
+        );
+        ctx.stroke();
+    }
+
+    isNearPoint(x, y, threshold = 10) {
+        const fromNode = state.nodes.find(n => n.id === this.fromNodeId);
+        const toNode = state.nodes.find(n => n.id === this.toNodeId);
+        if (!fromNode || !toNode) return false;
+
+        const fromPos = fromNode.getPortPosition(this.fromPortId);
+        const toPos = toNode.getPortPosition(this.toPortId);
+        if (!fromPos || !toPos) return false;
+
+        // Sample points along the bezier curve
+        const dx = Math.abs(toPos.x - fromPos.x);
+        const controlPointOffset = Math.min(dx * 0.5, 100);
+
+        const cp1x = fromPos.x + (fromPos.isLeft ? -controlPointOffset : controlPointOffset);
+        const cp1y = fromPos.y;
+        const cp2x = toPos.x + (toPos.isLeft ? -controlPointOffset : controlPointOffset);
+        const cp2y = toPos.y;
+
+        // Check multiple points along the curve
+        for (let t = 0; t <= 1; t += 0.05) {
+            const mt = 1 - t;
+            const px = mt * mt * mt * fromPos.x + 3 * mt * mt * t * cp1x + 3 * mt * t * t * cp2x + t * t * t * toPos.x;
+            const py = mt * mt * mt * fromPos.y + 3 * mt * mt * t * cp1y + 3 * mt * t * t * cp2y + t * t * t * toPos.y;
+            ctx.save();
+            ctx.translate(state.offset.x, state.offset.y);
+            ctx.scale(state.scale, state.scale);
+
+            // Draw grid
+            drawGrid();
+
+            // Draw connections
+            state.connections.forEach(conn => conn.draw(ctx, conn === state.selectedConnection));
+
+            // Draw connection preview
+            if (state.isConnecting && state.connectionStart) {
+                const startNode = state.nodes.find(n => n.id === state.connectionStart.nodeId);
+                if (startNode) {
+                    const startPos = startNode.getPortPosition(state.connectionStart.portId);
+                    if (startPos) {
+                        ctx.strokeStyle = '#58a6ff';
+                        ctx.lineWidth = 2;
+                        ctx.setLineDash([5, 5]);
+                        ctx.beginPath();
+                        ctx.moveTo(startPos.x, startPos.y);
+                        ctx.lineTo(
+                            (state.mousePos.x - state.offset.x) / state.scale,
+                            (state.mousePos.y - state.offset.y) / state.scale
+                        );
+                        ctx.stroke();
+                        ctx.setLineDash([]);
+                    }
+                }
+            }
+
+            // Draw nodes
+            state.nodes.forEach(node => {
+                node.draw(ctx, node === state.selectedNode);
+            });
+
+            ctx.restore();
+        }
+
+        function drawGrid() {
+            const gridSize = 20;
+            const startX = Math.floor((-state.offset.x / state.scale) / gridSize) * gridSize;
+            const startY = Math.floor((-state.offset.y / state.scale) / gridSize) * gridSize;
+            const endX = startX + (canvas.width / state.scale) + gridSize;
+            const endY = startY + (canvas.height / state.scale) + gridSize;
+
+            ctx.strokeStyle = '#161b22';
+            ctx.lineWidth = 1;
+
+            for (let x = startX; x < endX; x += gridSize) {
+                ctx.beginPath();
+                ctx.moveTo(x, startY);
+                ctx.lineTo(x, endY);
+                ctx.stroke();
+            }
+
+            for (let y = startY; y < endY; y += gridSize) {
+                ctx.beginPath();
+                ctx.moveTo(startX, y);
+                ctx.lineTo(endX, y);
+                ctx.stroke();
+            }
+        }
+
+        // ===== Mouse Event Handlers =====
+        function getMousePos(e) {
+            const rect = canvas.getBoundingClientRect();
+            return {
+                x: e.clientX - rect.left,
+                y: e.clientY - rect.top
+            };
+        }
+
+        function getWorldPos(screenX, screenY) {
+            return {
+                x: (screenX - state.offset.x) / state.scale,
+                y: (screenY - state.offset.y) / state.scale
+            };
+        }
+
+        canvas.addEventListener('mousedown', (e) => {
+            const mousePos = getMousePos(e);
+            state.mousePos = mousePos;
+            const worldPos = getWorldPos(mousePos.x, mousePos.y);
+
+            // Check if clicking on a port
+            for (const node of state.nodes) {
+                const port = node.getPortAtPosition(worldPos.x, worldPos.y);
+                if (port) {
+                    state.isConnecting = true;
+                    state.connectionStart = {
+                        nodeId: node.id,
+                        portId: port.id
+                    };
+                    return;
+                }
+            }
+
+            // Check if clicking on a connection
+            let clickedConnection = null;
+            for (let i = state.connections.length - 1; i >= 0; i--) {
+                if (state.connections[i].isNearPoint(worldPos.x, worldPos.y)) {
+                    clickedConnection = state.connections[i];
+                    break;
+                }
+            }
+
+            if (clickedConnection) {
+                state.selectedConnection = clickedConnection;
+                state.selectedNode = null;
+                updatePropertiesPanel();
+                render();
+                return;
+            }
+
+            // Check if clicking on a node
+            let clickedNode = null;
+            for (let i = state.nodes.length - 1; i >= 0; i--) {
+                if (state.nodes[i].containsPoint(worldPos.x, worldPos.y)) {
+                    clickedNode = state.nodes[i];
+                    break;
+                }
+            }
+
+            if (clickedNode) {
+                state.selectedNode = clickedNode;
+                state.selectedConnection = null;
+                state.isDragging = true;
+                state.draggedNode = clickedNode;
+                state.dragStart = { x: worldPos.x - clickedNode.x, y: worldPos.y - clickedNode.y };
+                updatePropertiesPanel();
+            } else {
+                // Start panning
+                state.selectedNode = null;
+                state.selectedConnection = null;
+                state.isPanning = true;
+                state.panStart = { x: mousePos.x - state.offset.x, y: mousePos.y - state.offset.y };
+                updatePropertiesPanel();
+            }
+
+            render();
+        });
+
+        canvas.addEventListener('mousemove', (e) => {
+            const mousePos = getMousePos(e);
+            state.mousePos = mousePos;
+            const worldPos = getWorldPos(mousePos.x, mousePos.y);
+
+            if (state.isDragging && state.draggedNode) {
+                state.draggedNode.x = worldPos.x - state.dragStart.x;
+                state.draggedNode.y = worldPos.y - state.dragStart.y;
+                render();
+            } else if (state.isPanning) {
+                state.offset.x = mousePos.x - state.panStart.x;
+                state.offset.y = mousePos.y - state.panStart.y;
+                render();
+            } else if (state.isConnecting) {
+                render();
+            }
+        });
+
+        canvas.addEventListener('mouseup', (e) => {
+            const mousePos = getMousePos(e);
+            const worldPos = getWorldPos(mousePos.x, mousePos.y);
+
+            if (state.isConnecting && state.connectionStart) {
+                // Check if released on a port
+                for (const node of state.nodes) {
+                    const port = node.getPortAtPosition(worldPos.x, worldPos.y);
+                    if (port && node.id !== state.connectionStart.nodeId) {
+                        if (state.connectionStart.reconnecting) {
+                            // Remove old connection and create new one
+                            const oldConn = state.connectionStart.oldConnection;
+                            const index = state.connections.indexOf(oldConn);
+                            if (index > -1) {
+                                state.connections.splice(index, 1);
+                            }
+                        }
+
+                        // Create connection
+                        const connection = new Connection(
+                            state.connectionStart.nodeId,
+                            state.connectionStart.portId,
+                            node.id,
+                            port.id
+                        );
+                        state.connections.push(connection);
+                        break;
+                    }
+                }
+                state.isConnecting = false;
+                state.connectionStart = null;
+            }
+
+            state.isDragging = false;
+            state.draggedNode = null;
+            state.isPanning = false;
+            render();
+        });
+
+        // Zoom with mouse wheel
+        canvas.addEventListener('wheel', (e) => {
+            e.preventDefault();
+            const mousePos = getMousePos(e);
+            const worldPosBefore = getWorldPos(mousePos.x, mousePos.y);
+
+            const zoomFactor = e.deltaY > 0 ? 0.9 : 1.1;
+            state.scale *= zoomFactor;
+            state.scale = Math.max(0.1, Math.min(3, state.scale));
+
+            const worldPosAfter = getWorldPos(mousePos.x, mousePos.y);
+            state.offset.x += (worldPosAfter.x - worldPosBefore.x) * state.scale;
+            state.offset.y += (worldPosAfter.y - worldPosBefore.y) * state.scale;
+
+            render();
+        });
+
+        // ===== Button Event Handlers =====
+        document.getElementById('addNodeBtn').addEventListener('click', () => {
+            const node = new Node(
+                (canvas.width / 2 - state.offset.x) / state.scale - 100,
+                (canvas.height / 2 - state.offset.y) / state.scale - 75
+            );
+            state.nodes.push(node);
+            state.selectedNode = node;
+            updatePropertiesPanel();
+            render();
+        });
+
+        document.getElementById('saveBtn').addEventListener('click', () => {
+            const data = {
+                title: document.getElementById('diagramTitle').textContent,
+                nodes: state.nodes.map(n => ({
+                    id: n.id,
+                    x: n.x,
+                    y: n.y,
+                    width: n.width,
+                    height: n.height,
+                    label: n.label,
+                    color: n.color,
+                    memo: n.memo,
+                    leftPorts: n.leftPorts,
+                    rightPorts: n.rightPorts
+                })),
+                connections: state.connections.map(c => ({
+                    id: c.id,
+                    fromNodeId: c.fromNodeId,
+                    fromPortId: c.fromPortId,
+                    toNodeId: c.toNodeId,
+                    toPortId: c.toPortId
+                }))
+            };
+
+            const json = JSON.stringify(data, null, 2);
+            const blob = new Blob([json], { type: 'application/json' });
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = 'network-diagram.json';
+            a.click();
+            URL.revokeObjectURL(url);
+        });
+
+        document.getElementById('loadBtn').addEventListener('click', () => {
+            document.getElementById('fileInput').click();
+        });
+
+        document.getElementById('fileInput').addEventListener('change', (e) => {
+            const file = e.target.files[0];
+            if (!file) return;
+
+            const reader = new FileReader();
+            reader.onload = (event) => {
+                try {
+                    const data = JSON.parse(event.target.result);
+
+                    // Load title
+                    if (data.title) {
+                        document.getElementById('diagramTitle').textContent = data.title;
+                        state.diagramTitle = data.title;
+                    }
+
+                    // Clear current state
+                    state.nodes = [];
+                    state.connections = [];
+                    state.selectedNode = null;
+                    state.selectedConnection = null;
+
+                    // Load nodes
+                    data.nodes.forEach(nodeData => {
+                        const node = new Node(nodeData.x, nodeData.y);
+                        node.id = nodeData.id;
+                        node.width = nodeData.width;
+                        node.height = nodeData.height;
+                        node.label = nodeData.label;
+                        node.color = nodeData.color;
+                        node.memo = nodeData.memo;
+                        node.leftPorts = nodeData.leftPorts;
+                        node.rightPorts = nodeData.rightPorts;
+                        state.nodes.push(node);
+
+                        if (node.id >= state.nextNodeId) {
+                            state.nextNodeId = node.id + 1;
+                        }
+                    });
+
+                    // Load connections
+                    data.connections.forEach(connData => {
+                        const conn = new Connection(
+                            connData.fromNodeId,
+                            connData.fromPortId,
+                            connData.toNodeId,
+                            connData.toPortId
+                        );
+                        conn.id = connData.id;
+                        state.connections.push(conn);
+
+                        if (conn.id >= state.nextConnectionId) {
+                            state.nextConnectionId = conn.id + 1;
+                        }
+                    });
+
+                    updatePropertiesPanel();
+                    render();
+                } catch (error) {
+                    alert('ファイルの読み込みに失敗しました: ' + error.message);
+                }
+            };
+            reader.readAsText(file);
+            e.target.value = '';
+        });
+
+        document.getElementById('exportBtn').addEventListener('click', () => {
+            const tempCanvas = document.createElement('canvas');
+            const tempCtx = tempCanvas.getContext('2d');
+
+            // Calculate bounds
+            let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+            state.nodes.forEach(node => {
+                minX = Math.min(minX, node.x - 50);
+                minY = Math.min(minY, node.y - 50);
+                maxX = Math.max(maxX, node.x + node.width + 50);
+                maxY = Math.max(maxY, node.y + node.height + 50);
+            });
+
+            if (state.nodes.length === 0) {
+                alert('エクスポートするノードがありません');
+                return;
+            }
+
+            tempCanvas.width = maxX - minX;
+            tempCanvas.height = maxY - minY;
+
+            // Fill background
+            tempCtx.fillStyle = '#0d1117';
+            tempCtx.fillRect(0, 0, tempCanvas.width, tempCanvas.height);
+
+            // Translate to fit content
+            tempCtx.translate(-minX, -minY);
+
+            // Draw connections
+            state.connections.forEach(conn => conn.draw(tempCtx));
+
+            // Draw nodes
+            state.nodes.forEach(node => node.draw(tempCtx, false));
+
+            // Export as PNG
+            tempCanvas.toBlob(blob => {
+                const url = URL.createObjectURL(blob);
+                const a = document.createElement('a');
+                a.href = url;
+                a.download = 'network-diagram.png';
+                a.click();
+                URL.revokeObjectURL(url);
+            });
+        });
+
+        // Keyboard shortcuts
+        document.addEventListener('keydown', (e) => {
+            if (e.key === 'Delete') {
+                if (state.selectedNode) {
+                    // Delete selected node
+                    const index = state.nodes.indexOf(state.selectedNode);
+                    if (index > -1) {
+                        const nodeId = state.selectedNode.id;
+                        state.nodes.splice(index, 1);
+
+                        // Remove connections to this node
+                        state.connections = state.connections.filter(
+                            c => c.fromNodeId !== nodeId && c.toNodeId !== nodeId
+                        );
+
+                        state.selectedNode = null;
+                        updatePropertiesPanel();
+                        render();
+                    }
+                } else if (state.selectedConnection) {
+                    // Delete selected connection
+                    const index = state.connections.indexOf(state.selectedConnection);
+                    if (index > -1) {
+                        state.connections.splice(index, 1);
+                        state.selectedConnection = null;
+                        updatePropertiesPanel();
+                        render();
+                    }
+                }
+            }
+        });
+
+        // ===== Properties Panel =====
+        function updatePropertiesPanel() {
+            const panel = document.getElementById('propertiesPanel');
+
+            if (state.selectedConnection) {
+                // Show connection properties
+                const conn = state.selectedConnection;
+                const fromNode = state.nodes.find(n => n.id === conn.fromNodeId);
+                const toNode = state.nodes.find(n => n.id === conn.toNodeId);
+
+                panel.innerHTML = `
+            <div class="property-group">
+                <label class="property-label">接続情報</label>
+                <p class="text-small">接続元: ${fromNode ? fromNode.label : '不明'}</p>
+                <p class="text-small">接続先: ${toNode ? toNode.label : '不明'}</p>
+            </div>
+            
+            <div class="divider"></div>
+            
+            <div class="property-group">
+                <button class="btn btn-secondary" id="reconnectBtn" style="width: 100%; margin-bottom: 8px;">🔄 接続を繋ぎ変える</button>
+                <button class="btn btn-secondary" id="deleteConnectionBtn" style="width: 100%; background: #da3633; border-color: #da3633;">🗑️ 接続を削除</button>
+            </div>
+        `;
+
+                document.getElementById('deleteConnectionBtn').addEventListener('click', () => {
+                    const index = state.connections.indexOf(state.selectedConnection);
+                    if (index > -1) {
+                        state.connections.splice(index, 1);
+                        state.selectedConnection = null;
+                        updatePropertiesPanel();
+                        render();
+                    }
+                });
+
+                document.getElementById('reconnectBtn').addEventListener('click', () => {
+                    // Start reconnection mode
+                    state.isConnecting = true;
+                    state.connectionStart = {
+                        nodeId: conn.fromNodeId,
+                        portId: conn.fromPortId,
+                        reconnecting: true,
+                        oldConnection: conn
+                    };
+                    state.selectedConnection = null;
+                    updatePropertiesPanel();
+                    render();
+                });
+
+                return;
+            }
+
+            if (!state.selectedNode) {
+                panel.innerHTML = '<p class="empty-state">ノードまたは接続を選択してください</p>';
+                return;
+            }
+
+            const node = state.selectedNode;
+
+            panel.innerHTML = `
+        <div class="property-group">
+            <label class="property-label">ノード名</label>
+            <input type="text" class="property-input" id="nodeName" value="${node.label}">
+        </div>
+        
+        <div class="property-group">
+            <label class="property-label">色</label>
+            <div class="color-picker-wrapper">
+                <input type="color" class="color-picker" id="nodeColor" value="${node.color}">
+                <input type="text" class="color-value" id="nodeColorValue" value="${node.color}" readonly>
+            </div>
+        </div>
+        
+        <div class="divider"></div>
+        
+        <div class="property-group">
+            <label class="property-label">左側ポート</label>
+            <div class="port-list" id="leftPortsList"></div>
+            <button class="btn btn-secondary mt-2" id="addLeftPort" style="width: 100%; font-size: 12px;">+ ポート追加</button>
+        </div>
+        
+        <div class="property-group">
+            <label class="property-label">右側ポート</label>
+            <div class="port-list" id="rightPortsList"></div>
+            <button class="btn btn-secondary mt-2" id="addRightPort" style="width: 100%; font-size: 12px;">+ ポート追加</button>
+        </div>
+        
+        <div class="divider"></div>
+        
+        <div class="property-group">
+            <label class="property-label">メモ</label>
+            <textarea class="property-input" id="nodeMemo" placeholder="IPアドレス、スペックなど">${node.memo}</textarea>
+        </div>
+    `;
+
+            // Update port lists
+            updatePortList('left');
+            updatePortList('right');
+
+            // Event listeners
+            document.getElementById('nodeName').addEventListener('input', (e) => {
+                node.label = e.target.value;
+                render();
+            });
+
+            document.getElementById('nodeColor').addEventListener('input', (e) => {
+                node.color = e.target.value;
+                document.getElementById('nodeColorValue').value = e.target.value;
+                render();
+            });
+
+            document.getElementById('nodeMemo').addEventListener('input', (e) => {
+                node.memo = e.target.value;
+            });
+
+            document.getElementById('addLeftPort').addEventListener('click', () => {
+                const portNum = node.leftPorts.length + 1;
+                node.leftPorts.push({
+                    name: `L${portNum}`,
+                    id: `${node.id}-L${portNum}`
+                });
+                updatePortList('left');
+                render();
+            });
+
+            document.getElementById('addRightPort').addEventListener('click', () => {
+                const portNum = node.rightPorts.length + 1;
+                node.rightPorts.push({
+                    name: `R${portNum}`,
+                    id: `${node.id}-R${portNum}`
+                });
+                updatePortList('right');
+                render();
+            });
+        }
+
+        function updatePortList(side) {
+            const node = state.selectedNode;
+            if (!node) return;
+
+            const ports = side === 'left' ? node.leftPorts : node.rightPorts;
+            const listId = side === 'left' ? 'leftPortsList' : 'rightPortsList';
+            const list = document.getElementById(listId);
+
+            list.innerHTML = ports.map((port, index) => `
+        <div class="port-item">
+            <span class="port-side-label">${side === 'left' ? 'L' : 'R'}${index + 1}</span>
+            <input type="text" class="property-input" value="${port.name}" 
+                   onchange="updatePortName('${side}', ${index}, this.value)">
+            <button class="btn btn-secondary" style="padding: 6px 10px; font-size: 11px;" 
+                    onclick="deletePort('${side}', ${index})">🗑️</button>
+        </div>
+    `).join('');
+        }
+
+        window.updatePortName = function (side, index, newName) {
+            const node = state.selectedNode;
+            if (!node) return;
+
+            const ports = side === 'left' ? node.leftPorts : node.rightPorts;
+            ports[index].name = newName;
+            render();
+        };
+
+        window.deletePort = function (side, index) {
+            const node = state.selectedNode;
+            if (!node) return;
+
+            const ports = side === 'left' ? node.leftPorts : node.rightPorts;
+            const portId = ports[index].id;
+
+            // Remove connections to this port
+            state.connections = state.connections.filter(
+                c => c.fromPortId !== portId && c.toPortId !== portId
+            );
+
+            ports.splice(index, 1);
+            updatePortList(side);
+            render();
+        };
+
+        // Initial render
+        render();
