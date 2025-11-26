@@ -16,6 +16,8 @@ const state = {
     selectedNode: null,
     selectedConnection: null,
     selectedGroup: null,
+    selectedNodes: [],      // Multiple node selection
+    selectedGroups: [],     // Multiple group selection
     isDragging: false,
     draggedNode: null,
     draggedGroup: null,
@@ -32,7 +34,10 @@ const state = {
     isResizingGroup: false,
     isResizingNode: false,
     resizeTarget: null,
-    clipboard: null
+    clipboard: null,
+    isSelecting: false,     // For shift+drag selection
+    selectionStart: null,   // Selection rectangle start
+    selectionEnd: null      // Selection rectangle end
 };
 
 // ===== Canvas Setup =====

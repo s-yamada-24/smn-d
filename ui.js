@@ -320,7 +320,7 @@ function updateElementList() {
     let html = `
         <table class="data-table">
             <thead><tr>
-                <th style="width: 80px;">状態</th><th>名称</th><th>メモ1</th><th>メモ2</th><th>リンク</th>
+                <th style="width: 50px;">有効</th><th>名称</th><th>メモ1</th><th>メモ2</th><th>リンク</th>
                 <th style="width: 60px;">色</th><th class="action-cell">順序</th><th class="action-cell"></th>
             </tr></thead>
             <tbody>
@@ -329,15 +329,12 @@ function updateElementList() {
     node.elements.forEach((el, index) => {
         html += `
             <tr>
-                <td><select onchange="updateElementField(${index}, 'status', this.value)">
-                    <option value="Active" ${el.status === 'Active' ? 'selected' : ''}>Active</option>
-                    <option value="Inactive" ${el.status === 'Inactive' ? 'selected' : ''}>Inactive</option>
-                </select></td>
+                <td style="text-align: center;"><input type="checkbox" ${el.status === 'Active' ? 'checked' : ''} onchange="updateElementField(${index}, 'status', this.checked ? 'Active' : 'Inactive')"></td>
                 <td><input type="text" value="${el.name}" onchange="updateElementField(${index}, 'name', this.value)"></td>
                 <td><textarea rows="1" style="overflow:hidden; resize:none;" oninput="window.autoResize(this); updateElementField(${index}, 'memo1', this.value)" onfocus="window.autoResize(this)">${el.memo1 || ''}</textarea></td>
                 <td><textarea rows="1" style="overflow:hidden; resize:none;" oninput="window.autoResize(this); updateElementField(${index}, 'memo2', this.value)" onfocus="window.autoResize(this)">${el.memo2 || ''}</textarea></td>
                 <td><input type="text" value="${el.url || ''}" onchange="updateElementField(${index}, 'url', this.value)"></td>
-                <td><input type="color" value="${el.color || '#c9d1d9'}" onchange="updateElementField(${index}, 'color', this.value)" style="height: 30px;"></td>
+                <td><input type="color" value="${el.color || '#c9d1d9'}" onchange="updateElementField(${index}, 'color', this.value)" style="height: 30px; width: 30px;"></td>
                 <td class="action-cell">
                     <button class="btn-icon" onclick="moveElement(${index}, -1)" ${index === 0 ? 'disabled' : ''}>▲</button>
                     <button class="btn-icon" onclick="moveElement(${index}, 1)" ${index === node.elements.length - 1 ? 'disabled' : ''}>▼</button>
@@ -377,7 +374,7 @@ function updatePortList(side) {
     let html = `
         <table class="data-table">
             <thead><tr>
-                <th style="width: 80px;">状態</th><th>名称</th><th>分類</th><th>型番</th><th>メモ</th>
+                <th style="width: 50px;">有効</th><th>名称</th><th>分類</th><th>型番</th><th>メモ</th>
                 <th class="action-cell">順序</th><th class="action-cell"></th>
             </tr></thead>
             <tbody>
@@ -386,10 +383,7 @@ function updatePortList(side) {
     ports.forEach((port, index) => {
         html += `
             <tr>
-                <td><select onchange="updatePortField('${side}', ${index}, 'status', this.value)">
-                    <option value="Active" ${port.status === 'Active' ? 'selected' : ''}>Active</option>
-                    <option value="Inactive" ${port.status === 'Inactive' ? 'selected' : ''}>Inactive</option>
-                </select></td>
+                <td style="text-align: center;"><input type="checkbox" ${port.status === 'Active' ? 'checked' : ''} onchange="updatePortField('${side}', ${index}, 'status', this.checked ? 'Active' : 'Inactive')"></td>
                 <td><input type="text" value="${port.name}" onchange="updatePortField('${side}', ${index}, 'name', this.value)"></td>
                 <td><select onchange="updatePortField('${side}', ${index}, 'classification', this.value)">
                     <option value="LAN" ${port.classification === 'LAN' ? 'selected' : ''}>LAN</option>

@@ -103,6 +103,10 @@ document.getElementById('loadBtn').addEventListener('click', () => {
     document.getElementById('fileInput').click();
 });
 
+document.getElementById('importBtn').addEventListener('click', () => {
+    document.getElementById('importInput').click();
+});
+
 document.getElementById('fileInput').addEventListener('change', (e) => {
     const file = e.target.files[0];
     if (!file) return;
@@ -180,6 +184,150 @@ document.getElementById('fileInput').addEventListener('change', (e) => {
     e.target.value = '';
 });
 
+document.getElementById('importInput').addEventListener('change', (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+
+    const reader = new FileReader();
+    reader.onload = (event) => {
+        try {
+            const data = JSON.parse(event.target.result);
+
+            // Import logic: Append nodes, groups, and connections with new IDs
+            // Do NOT update title
+
+            // ID Mapping
+            const idMap = new Map();
+            const nodeIdMap = new Map();
+
+            // Import Groups
+            if (data.groups) {
+                data.groups.forEach(groupData => {
+                    const group = new Group(groupData.x + 20, groupData.y + 20, groupData.width, groupData.height);
+                    group.label = groupData.label;
+                    group.color = groupData.color;
+                    group.backgroundColor = groupData.backgroundColor || 'rgba(22, 27, 34, 0.5)';
+
+                    idMap.set(groupData.id, group.id);
+                    state.groups.push(group);
+                });
+
+                // Restore group hierarchy
+                data.groups.forEach(groupData => {
+                    const newGroupId = idMap.get(groupData.id);
+                    const newGroup = state.groups.find(g => g.id === newGroupId);
+
+                    if (newGroup) {
+                        if (groupData.parentId) {
+                            newGroup.parentId = idMap.get(groupData.parentId) || null;
+                        }
+
+                        if (groupData.children) {
+                            // Children will be populated as we process nodes and other groups, 
+                            // but we can pre-fill group children here if we want, 
+                            // OR we can rely on the fact that we'll update children when we process nodes/groups.
+                            // Actually, it's safer to rebuild children array based on parentId.
+                            // But let's follow the pattern: map old children IDs to new IDs.
+                            newGroup.children = groupData.children.map(childId => idMap.get(childId)).filter(id => id !== undefined);
+                        }
+                    }
+                });
+            }
+
+            // Import Nodes
+            if (data.nodes) {
+                data.nodes.forEach(nodeData => {
+                    const node = new NetworkNode(nodeData.x + 20, nodeData.y + 20);
+                    // Generate new ID automatically in constructor
+
+                    node.width = nodeData.width;
+                    node.height = nodeData.height;
+                    node.label = nodeData.label;
+                    node.color = nodeData.color;
+                    node.memo = nodeData.memo;
+                    node.link = nodeData.link || '';
+                    node.status = nodeData.status || 'Active';
+                    node.classification = nodeData.classification || 'PC';
+                    node.managementId = nodeData.managementId || '';
+                    node.modelNumber = nodeData.modelNumber || '';
+                    node.location = nodeData.location || '';
+                    node.installDate = nodeData.installDate || '';
+                    node.disposalDate = nodeData.disposalDate || '';
+
+                    // Map old ID to new ID
+                    idMap.set(nodeData.id, node.id);
+                    nodeIdMap.set(nodeData.id, node.id);
+
+                    // Handle parent
+                    if (nodeData.parentId) {
+                        node.parentId = idMap.get(nodeData.parentId) || null;
+                        // Add to parent group's children if not already there (though we handled children array above)
+                        if (node.parentId) {
+                            const parentGroup = state.groups.find(g => g.id === node.parentId);
+                            if (parentGroup && !parentGroup.children.includes(node.id)) {
+                                parentGroup.children.push(node.id);
+                            }
+                        }
+                    }
+
+                    // Handle elements with new IDs
+                    node.elements = (nodeData.elements || []).map(el => ({
+                        ...el,
+                        id: `${node.id}-e${state.nextElementId++}`
+                    }));
+
+                    // Handle ports with new IDs
+                    const regeneratePortIds = (ports) => {
+                        return (ports || []).map(p => ({
+                            ...p,
+                            id: `${node.id}-${p.name}`
+                        }));
+                    };
+
+                    node.leftPorts = regeneratePortIds(nodeData.leftPorts);
+                    node.rightPorts = regeneratePortIds(nodeData.rightPorts);
+                    node.topPorts = regeneratePortIds(nodeData.topPorts);
+                    node.bottomPorts = regeneratePortIds(nodeData.bottomPorts);
+
+                    state.nodes.push(node);
+                });
+            }
+
+            // Import Connections
+            if (data.connections) {
+                data.connections.forEach(connData => {
+                    const newFromNodeId = nodeIdMap.get(connData.fromNodeId);
+                    const newToNodeId = nodeIdMap.get(connData.toNodeId);
+
+                    if (newFromNodeId && newToNodeId) {
+                        // Reconstruct port IDs
+                        const fromPortName = connData.fromPortId.split('-').slice(1).join('-');
+                        const toPortName = connData.toPortId.split('-').slice(1).join('-');
+
+                        const newFromPortId = `${newFromNodeId}-${fromPortName}`;
+                        const newToPortId = `${newToNodeId}-${toPortName}`;
+
+                        const conn = new Connection(newFromNodeId, newFromPortId, newToNodeId, newToPortId);
+                        conn.name = connData.name || '';
+                        conn.color = connData.color || '#58a6ff';
+                        conn.lineStyle = connData.lineStyle || 'solid';
+
+                        state.connections.push(conn);
+                    }
+                });
+            }
+
+            updatePropertiesPanel();
+            render();
+            alert('インポートが完了しました');
+        } catch (error) {
+            alert('ファイルのインポートに失敗しました: ' + error.message);
+        }
+    };
+    reader.readAsText(file);
+    e.target.value = '';
+});
+
 document.getElementById('exportBtn').addEventListener('click', () => {
     const tempCanvas = document.createElement('canvas');
     const tempCtx = tempCanvas.getContext('2d');
@@ -235,59 +383,88 @@ document.getElementById('exportBtn').addEventListener('click', () => {
 });
 
 document.addEventListener('keydown', (e) => {
+    // Check if user is typing in an input field
+    const isTyping = document.activeElement && (
+        document.activeElement.tagName === 'INPUT' ||
+        document.activeElement.tagName === 'TEXTAREA' ||
+        document.activeElement.isContentEditable
+    );
+
     if (e.key === 'Delete') {
-        if (state.selectedNode) {
-            const index = state.nodes.indexOf(state.selectedNode);
-            if (index > -1) {
-                const nodeId = state.selectedNode.id;
-                state.nodes.splice(index, 1);
-                state.connections = state.connections.filter(c => c.fromNodeId !== nodeId && c.toNodeId !== nodeId);
-                state.selectedNode = null;
-                updatePropertiesPanel();
-                render();
-            }
-        } else if (state.selectedConnection) {
+        // Don't delete nodes/connections/groups if user is typing
+        if (isTyping) return;
+
+        let changed = false;
+
+        // Delete multiple nodes
+        if (state.selectedNodes.length > 0) {
+            state.selectedNodes.forEach(node => {
+                const index = state.nodes.indexOf(node);
+                if (index > -1) {
+                    state.nodes.splice(index, 1);
+                    // Remove connections
+                    state.connections = state.connections.filter(c => c.fromNodeId !== node.id && c.toNodeId !== node.id);
+                }
+            });
+            state.selectedNodes = [];
+            state.selectedNode = null;
+            changed = true;
+        }
+
+        // Delete multiple groups
+        if (state.selectedGroups.length > 0) {
+            state.selectedGroups.forEach(group => {
+                const index = state.groups.indexOf(group);
+                if (index > -1) {
+                    state.groups.splice(index, 1);
+                }
+            });
+            state.selectedGroups = [];
+            state.selectedGroup = null;
+            changed = true;
+        }
+
+        // Delete single connection
+        if (state.selectedConnection) {
             const index = state.connections.indexOf(state.selectedConnection);
             if (index > -1) {
                 state.connections.splice(index, 1);
                 state.selectedConnection = null;
-                updatePropertiesPanel();
-                render();
+                changed = true;
             }
-        } else if (state.selectedGroup) {
-            const index = state.groups.indexOf(state.selectedGroup);
-            if (index > -1) {
-                state.groups.splice(index, 1);
-                state.selectedGroup = null;
-                updatePropertiesPanel();
-                render();
-            }
+        }
+
+        if (changed) {
+            updatePropertiesPanel();
+            render();
         }
     }
 });
 
 // ===== Resize Logic =====
-const bottomPanel = document.getElementById('bottomPanel');
+const leftPanel = document.getElementById('leftPanel');
 const resizeHandle = document.getElementById('resizeHandle');
 let isResizing = false;
-let lastY = 0;
+let lastX = 0;
 
 resizeHandle.addEventListener('mousedown', (e) => {
     isResizing = true;
-    lastY = e.clientY;
+    lastX = e.clientX;
     resizeHandle.classList.add('active');
-    document.body.style.cursor = 'ns-resize';
+    document.body.style.cursor = 'ew-resize';
     e.preventDefault();
 });
 
 document.addEventListener('mousemove', (e) => {
     if (!isResizing) return;
-    const deltaY = lastY - e.clientY;
-    const currentHeight = bottomPanel.offsetHeight;
-    const newHeight = currentHeight + deltaY;
-    bottomPanel.style.height = `${newHeight}px`;
-    lastY = e.clientY;
-    resizeCanvas();
+    const deltaX = e.clientX - lastX;
+    const currentWidth = leftPanel.offsetWidth;
+    const newWidth = currentWidth + deltaX;
+    if (newWidth >= 200 && newWidth <= 800) {
+        leftPanel.style.width = `${newWidth}px`;
+        lastX = e.clientX;
+        resizeCanvas();
+    }
 });
 
 document.addEventListener('mouseup', () => {

@@ -19,32 +19,34 @@
                 <button class="btn btn-primary" id="addNodeBtn">ノード追加</button>
                 <button class="btn btn-secondary" id="saveBtn">保存</button>
                 <button class="btn btn-secondary" id="loadBtn">読み込み</button>
+                <button class="btn btn-secondary" id="importBtn">インポート</button>
                 <button class="btn btn-secondary" id="exportBtn">エクスポート</button>
                 <input type="file" id="fileInput" accept=".json" style="display: none;">
+                <input type="file" id="importInput" accept=".json" style="display: none;">
             </div>
         </header>
 
         <div class="main-content">
+            <div class="left-panel" id="leftPanel">
+                <div class="resize-handle" id="resizeHandle"></div>
+                <div class="properties-tabs">
+                    <button class="tab-btn active" data-tab="basic">基本情報</button>
+                    <button class="tab-btn" data-tab="elements">要素</button>
+                    <button class="tab-btn" data-tab="ports">ポート</button>
+                </div>
+                <div class="tab-content active" id="tab-basic">
+                    <p class="empty-state">ノード、接続、またはグループを選択してください</p>
+                </div>
+                <div class="tab-content" id="tab-elements">
+                    <p class="empty-state">ノードを選択してください</p>
+                </div>
+                <div class="tab-content" id="tab-ports">
+                    <p class="empty-state">ノードを選択してください</p>
+                </div>
+            </div>
+
             <div class="canvas-container">
                 <canvas id="canvas"></canvas>
-            </div>
-        </div>
-
-        <div class="bottom-panel" id="bottomPanel">
-            <div class="resize-handle" id="resizeHandle"></div>
-            <div class="properties-tabs">
-                <button class="tab-btn active" data-tab="basic">基本情報</button>
-                <button class="tab-btn" data-tab="elements">要素</button>
-                <button class="tab-btn" data-tab="ports">ポート</button>
-            </div>
-            <div class="tab-content active" id="tab-basic">
-                <p class="empty-state">ノード、接続、またはグループを選択してください</p>
-            </div>
-            <div class="tab-content" id="tab-elements">
-                <p class="empty-state">ノードを選択してください</p>
-            </div>
-            <div class="tab-content" id="tab-ports">
-                <p class="empty-state">ノードを選択してください</p>
             </div>
         </div>
     </div>

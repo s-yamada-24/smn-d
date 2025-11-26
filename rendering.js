@@ -18,7 +18,8 @@ function render() {
         drawnGroups.add(group.id);
 
         // Draw this group FIRST (so it appears behind children)
-        group.draw(ctx, group === state.selectedGroup);
+        const isSelected = group === state.selectedGroup || state.selectedGroups.includes(group);
+        group.draw(ctx, isSelected);
 
         // Then draw child groups (so they appear on top)
         // Only recurse on child GROUPS, not nodes
@@ -60,7 +61,26 @@ function render() {
     }
 
     // Draw ALL nodes (regardless of whether they have a parent or not)
-    state.nodes.forEach(node => node.draw(ctx, node === state.selectedNode));
+    state.nodes.forEach(node => {
+        const isSelected = node === state.selectedNode || state.selectedNodes.includes(node);
+        node.draw(ctx, isSelected);
+    });
+
+    // Draw selection rectangle
+    if (state.isSelecting && state.selectionStart && state.selectionEnd) {
+        const x = Math.min(state.selectionStart.x, state.selectionEnd.x);
+        const y = Math.min(state.selectionStart.y, state.selectionEnd.y);
+        const w = Math.abs(state.selectionEnd.x - state.selectionStart.x);
+        const h = Math.abs(state.selectionEnd.y - state.selectionStart.y);
+
+        ctx.strokeStyle = '#58a6ff';
+        ctx.lineWidth = 1;
+        ctx.fillStyle = 'rgba(88, 166, 255, 0.1)';
+        ctx.beginPath();
+        ctx.rect(x, y, w, h);
+        ctx.fill();
+        ctx.stroke();
+    }
 
     ctx.restore();
 }
